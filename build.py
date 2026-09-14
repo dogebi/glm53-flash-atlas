@@ -152,8 +152,8 @@ def templates(allow_unmapped: bool = False) -> dict:
         else:
             dom = "lineardense"                  # first_k_dense_replace = 3
         arch[dom] = s
-    mtp = {f"model.language_model.layers.45.{k}": v
-           for k, v in both.items() if k.startswith("model.language_model.layers.45.")}
+    mtp = {k: v for k, v in both.items()
+           if k.startswith("model.language_model.layers.45.")}
     if not mtp:
         raise SystemExit("no MTP layer (expected index 45)")
 
@@ -181,9 +181,14 @@ def templates(allow_unmapped: bool = False) -> dict:
     return {"arch": arch, "vis": vis, "io": io, "mtp": mtp}
 
 
-CAT = [(r"experts", "expert"), (r"\.mlp\.gate", "router"),
+# names arrive either layer-relative ("mlp.gate.weight") or fully qualified
+# ("model.language_model.layers.3.mlp.gate.weight"), so anchors must not require a leading dot;
+# shared_expert must be tested before the routed-expert pattern.
+CAT = [(r"shared_expert", "shared"),
+       (r"(?:^|\.)mlp\.experts|switch_mlp", "expert"),
+       (r"(?:^|\.)mlp\.gate", "router"),
        (r"indexer", "index"), (r"self_attn|linear_attn", "attn"),
-       (r"shared_expert", "shared"), (r"hc_(attn|ffn)", "mhc"),
+       (r"hc_(attn|ffn)", "mhc"),
        (r"norm|_log$|dt_bias|_ape$", "norm")]
 
 
@@ -348,7 +353,7 @@ const CATEGORIES=[
  ['vision','Vision tower + merger',COL.vision,VISION.ws],
  ['mtp','MTP layer',COL.mtp,DRAFT.flatMap(m=>m.ws)],
  ['vocab','Embedding + head',COL.head,[...EMBED.ws,...HEAD.ws]],
- ['norm','Norms and scalars',COL.norm,ALL_W.filter(w=>w.cat==='norm')]
+ ['norm','Norms and scalars',COL.norm,ALL_W.filter(w=>w.cat==='norm'&&!DRAFT.some(d=>d.ws.includes(w)))]
 ];
 const EXP={
  overview:{title:'320B parameters, 18B awake.',body:'GLM-5.3-Flash is a sparse MoE with a 1M-token window: 288 routed experts per layer, 8 chosen per token by a sigmoid router with a learned bias, a shared expert that always runs, and an MTP layer that drafts the next token. The hybrid stack alternates gated linear attention with sparse MLA attention, so most layers carry a fixed-size recurrent state instead of a growing cache.'},
@@ -552,6 +557,7 @@ REGEX_SUBS = [
      "m.part==='sparse'?COL.full:m.part==='linear'?COL.linear:m.id[0]==='D'?TC.mhc:"),
 ]
 LITERAL_SUBS: list[tuple[str, str]] = [
+    ('Model-card comparisons', 'Payload comparison'),
     ('384 experts', '288 experts'),
     ('coords=[[-2.6-rSide/2,0,0],[-1.4+eSide/2,0,0],[-1.4+eSide+2.4,0,-2.1],[-1.4+eSide+5.4,0,-2.1],[-1.4+eSide+5.4,0,2],[-1.4+eSide+2.4,0,2],[-4,0,Math.max(rSide,eSide)/2+2.4],[.6,0,Math.max(rSide,eSide)/2+2.4]]', 'sizes=CATEGORIES.map(c=>Math.cbrt(sumB(c[3],s.precision)/VOLUME_UNIT)),cols=3,gap=Math.max(...sizes,1)+2.6,rows=Math.ceil(CATEGORIES.length/cols),coords=CATEGORIES.map((c,i)=>[(i%cols-(cols-1)/2)*gap,0,(Math.floor(i/cols)-(rows-1)/2)*gap])'),
     ("this.curve(pos('vision'),pos('aligner'),TC.vision,.5,.4,.4);this.curve(pos('aligner'),pos('embed'),TC.vision,.5,.2,.6);", "this.curve(pos('vision'),pos('D0'),TC.vision,.5,.4,.4);this.curve(pos('D0'),pos('embed'),TC.mtp,.5,.2,.6);"),
